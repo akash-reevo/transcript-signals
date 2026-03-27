@@ -1,0 +1,4 @@
+snowflake-connector-python
+openpyxl
+boto3
+anthropic

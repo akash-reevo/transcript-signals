@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+env
+env/
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# Output
+output/
+
+# Superset
+.superset/
+
+# AWS
+.aws/
