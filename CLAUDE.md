@@ -10,7 +10,7 @@ uv venv && source .venv/bin/activate && uv pip install -r requirements.txt
 
 ## Usage — Step by step
 
-The pipeline has 3 steps that can be run independently or combined.
+The pipeline has 4 steps that can be run independently or combined.
 
 ### Step 1: Fetch from Snowflake + download transcripts from S3
 
@@ -47,6 +47,17 @@ python3 main.py --skip-fetch \
   --evaluations-file ./output/signal_evaluations.json
 ```
 
+### Step 4: Generate report (LLM-based)
+
+```bash
+python3 main.py --skip-fetch \
+  --final-stages "Closed Won,Closed Lost" \
+  --output-dir ./output \
+  --generate-report
+```
+
+Requires `ANTHROPIC_API_KEY` (or `--bedrock`). Reads `final_model.json` and outputs `report.md` with executive analysis, signal breakdowns, and appendices.
+
 ### Combined: Steps 2 + 3 in one run
 
 ```bash
@@ -56,17 +67,27 @@ python3 main.py --skip-fetch \
   --generate-signals --build-model
 ```
 
+### Combined: Steps 2 + 3 + 4 in one run
+
+```bash
+python3 main.py --skip-fetch \
+  --final-stages "Closed Won,Closed Lost" \
+  --output-dir ./output \
+  --generate-signals --build-model --generate-report
+```
+
 Each step uses cached outputs from the previous one, so they can be run independently.
 
 ## Architecture
 
-- `main.py` — Entry point: argparse, 4-phase orchestration (fetch → analyze → generate signals → build model), interactive disambiguation
+- `main.py` — Entry point: argparse, 5-phase orchestration (fetch → analyze → generate signals → build model → generate report), interactive disambiguation
 - `snowflake_queries.py` — All Snowflake connection + query logic (6 functions)
 - `gen_xlsx.py` — XLSX generation, one file per final stage (also standalone via batch JSON)
 - `download_transcripts.py` — S3 download using xlsx as input (also standalone)
 - `analyze_corpus.py` — Consolidate downloaded transcripts into corpus + meeting analysis (also standalone)
 - `generate_signals.py` — LLM-based signal discovery, consolidation, and evaluation using Claude API (also standalone)
 - `build_model.py` — Apply signals (regex or LLM evaluations), build scoring model, Monte Carlo validation (also standalone)
+- `generate_report.py` — LLM-powered Markdown report generation from final model (also standalone)
 
 ## Predictive signal analysis workflow
 

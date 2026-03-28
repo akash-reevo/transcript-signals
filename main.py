@@ -69,6 +69,7 @@ def parse_args():
     parser.add_argument("--generate-signals", action="store_true", help="Run LLM-based signal generation (requires ANTHROPIC_API_KEY)")
     parser.add_argument("--claude-model", default="claude-sonnet-4-20250514", help="Claude model for signal generation (default: claude-sonnet-4-20250514)")
     parser.add_argument("--force-regenerate", action="store_true", help="Bypass signal generation caches")
+    parser.add_argument("--generate-report", action="store_true", help="Generate Markdown report from final model")
     parser.add_argument("--bedrock", action="store_true", help="Use Amazon Bedrock instead of direct Anthropic API")
     parser.add_argument("--aws-region", default=None, help="AWS region for Bedrock (default: us-west-2)")
     parser.add_argument("--exclude-prefix", default="[test", help="Filename prefix to exclude from analysis (default: [test)")
@@ -102,6 +103,10 @@ def parse_args():
     # Validate: --generate-signals requires ANTHROPIC_API_KEY (unless using Bedrock)
     if args.generate_signals and not args.bedrock and not os.environ.get('ANTHROPIC_API_KEY'):
         parser.error("--generate-signals requires the ANTHROPIC_API_KEY environment variable (or use --bedrock)")
+
+    # Validate: --generate-report requires ANTHROPIC_API_KEY (unless using Bedrock)
+    if args.generate_report and not args.bedrock and not os.environ.get('ANTHROPIC_API_KEY'):
+        parser.error("--generate-report requires the ANTHROPIC_API_KEY environment variable (or use --bedrock)")
 
     return args
 
@@ -271,6 +276,22 @@ def main():
         print(f"\nModel complete: {model_summary['signal_count']} signals, "
               f"deterministic F1={model_summary['deterministic']['f1']}, "
               f"Monte Carlo F1={model_summary['monte_carlo']['f1']}")
+
+    # ── Phase 4: GENERATE REPORT ─────────────────────────────────
+    if args.generate_report:
+        from generate_report import generate_report
+
+        model_path = os.path.join(args.output_dir, 'final_model.json')
+        if not os.path.isfile(model_path):
+            print(f"\nERROR: final_model.json not found at {model_path}")
+            print("Run with --build-model first to generate the model.")
+            sys.exit(1)
+
+        print("\n=== Phase 4: Report Generation ===")
+        report_summary = generate_report(args.output_dir, model=args.claude_model,
+                                          bedrock=args.bedrock, aws_region=args.aws_region)
+        print(f"\nReport generated: {report_summary['report_path']} "
+              f"({report_summary['total_calls']} API calls, est. ${report_summary['estimated_cost']:.2f})")
 
     print("\nDone.")
 

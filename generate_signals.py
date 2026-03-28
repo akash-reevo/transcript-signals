@@ -93,7 +93,33 @@ class CostTracker:
                 f"est. cost: ${self.estimated_cost:.2f}")
 
 
-def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=5):
+def create_claude_client(bedrock=False, aws_region=None, model="claude-sonnet-4-20250514"):
+    """Create a Claude API client and resolve the model name.
+
+    Args:
+        bedrock: If True, use Amazon Bedrock instead of direct Anthropic API.
+        aws_region: AWS region for Bedrock (default: us-west-2).
+        model: Claude model name. Remapped for Bedrock if needed.
+
+    Returns:
+        (client, resolved_model) tuple.
+    """
+    if bedrock:
+        from anthropic.lib.bedrock import AnthropicBedrock
+        if model == "claude-sonnet-4-20250514":
+            model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        client = AnthropicBedrock(aws_region=aws_region or "us-west-2")
+    else:
+        import anthropic
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            print("ERROR: ANTHROPIC_API_KEY environment variable is required")
+            sys.exit(1)
+        client = anthropic.Anthropic(api_key=api_key)
+    return client, model
+
+
+def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=5, max_tokens=8192):
     """Call Claude API with retry logic and JSON extraction.
 
     Returns parsed JSON dict/list from Claude's response.
@@ -104,7 +130,7 @@ def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=5):
         try:
             response = client.messages.create(
                 model=model,
-                max_tokens=8192,
+                max_tokens=max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": user_msg}],
             )
@@ -547,19 +573,9 @@ def generate_signals(output_dir, model="claude-sonnet-4-20250514", force=False,
     Returns:
         dict summary with counts from each phase.
     """
+    client, model = create_claude_client(bedrock=bedrock, aws_region=aws_region, model=model)
     if bedrock:
-        from anthropic.lib.bedrock import AnthropicBedrock
-        if model == "claude-sonnet-4-20250514":
-            model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
-        client = AnthropicBedrock(aws_region=aws_region or "us-west-2")
         print(f"Using Bedrock ({aws_region or 'us-west-2'}) with model {model}")
-    else:
-        import anthropic
-        api_key = os.environ.get('ANTHROPIC_API_KEY')
-        if not api_key:
-            print("ERROR: ANTHROPIC_API_KEY environment variable is required")
-            sys.exit(1)
-        client = anthropic.Anthropic(api_key=api_key)
     cost_tracker = CostTracker(model)
 
     # Load corpus
