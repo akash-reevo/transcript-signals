@@ -8,27 +8,55 @@ Standalone CLI that connects to Snowflake, fetches meeting transcript metadata f
 uv venv && source .venv/bin/activate && uv pip install -r requirements.txt
 ```
 
-## Usage
+## Usage — Step by step
+
+The pipeline has 3 steps that can be run independently or combined.
+
+### Step 1: Fetch from Snowflake + download transcripts from S3
 
 ```bash
-# Full pipeline: fetch + download + analyze
 python3 main.py \
   --org-name "Reevo GTM" \
   --pipeline "Sales" \
   --first-stages "Negotiation" \
   --final-stages "Closed Won,Closed Lost" \
-  --output-dir ./output --analyze
-
-# Analysis only on already-downloaded transcripts (no Snowflake needed)
-python3 main.py --skip-fetch \
-  --final-stages "Closed Won,Closed Lost" \
-  --output-dir ./output --analyze
-
-# Build model from existing corpus + signals file
-python3 main.py --skip-fetch \
-  --final-stages "Closed Won,Closed Lost" \
-  --output-dir ./output --build-model --signals-file ./signals.json
+  --output-dir ./output
 ```
+
+Requires Snowflake env vars (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, etc.) and AWS credentials for S3.
+
+### Step 2: Extract signals (LLM-based)
+
+```bash
+python3 main.py --skip-fetch \
+  --final-stages "Closed Won,Closed Lost" \
+  --output-dir ./output \
+  --generate-signals
+```
+
+Requires `ANTHROPIC_API_KEY`. Outputs `raw_signals.json`, `signals.json`, and `signal_evaluations.json`.
+
+### Step 3: Build model + report
+
+```bash
+python3 main.py --skip-fetch \
+  --final-stages "Closed Won,Closed Lost" \
+  --output-dir ./output \
+  --build-model \
+  --signals-file ./output/signals.json \
+  --evaluations-file ./output/signal_evaluations.json
+```
+
+### Combined: Steps 2 + 3 in one run
+
+```bash
+python3 main.py --skip-fetch \
+  --final-stages "Closed Won,Closed Lost" \
+  --output-dir ./output \
+  --generate-signals --build-model
+```
+
+Each step uses cached outputs from the previous one, so they can be run independently.
 
 ## Architecture
 

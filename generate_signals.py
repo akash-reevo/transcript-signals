@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 COST_PER_M = {
     'claude-sonnet-4-20250514': {'input': 3.0, 'output': 15.0},
     'claude-sonnet-4-6': {'input': 3.0, 'output': 15.0},
+    'us.anthropic.claude-sonnet-4-20250514-v1:0': {'input': 3.0, 'output': 15.0},
 }
 DEFAULT_COST = {'input': 3.0, 'output': 15.0}
 
@@ -92,12 +93,12 @@ class CostTracker:
                 f"est. cost: ${self.estimated_cost:.2f}")
 
 
-def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=3):
+def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=5):
     """Call Claude API with retry logic and JSON extraction.
 
     Returns parsed JSON dict/list from Claude's response.
     """
-    backoff_times = [5, 15, 45]
+    backoff_times = [5, 15, 30, 60, 120]
 
     for attempt in range(max_retries + 1):
         try:
@@ -140,13 +141,15 @@ def _call_claude(client, model, system, user_msg, cost_tracker, max_retries=3):
 
         except Exception as e:
             err_str = str(e)
-            is_rate_limit = 'rate' in err_str.lower() or 'overloaded' in err_str.lower() or '529' in err_str
+            is_overloaded = 'overloaded' in err_str.lower() or '529' in err_str
+            is_rate_limit = 'rate' in err_str.lower() and not is_overloaded
+            is_retryable = is_rate_limit or is_overloaded
             is_json_error = isinstance(e, ValueError) and 'JSON' in err_str
 
-            if (is_rate_limit or is_json_error) and attempt < max_retries:
+            if (is_retryable or is_json_error) and attempt < max_retries:
                 wait = backoff_times[min(attempt, len(backoff_times) - 1)]
-                print(f"    {'Rate limited' if is_rate_limit else 'Parse error'}, "
-                      f"retrying in {wait}s ({attempt + 1}/{max_retries})...")
+                reason = 'Rate limited' if is_rate_limit else 'API overloaded (529)' if is_overloaded else 'Parse error'
+                print(f"    {reason}, retrying in {wait}s ({attempt + 1}/{max_retries})...")
                 time.sleep(wait)
                 continue
             raise
@@ -530,25 +533,33 @@ def phase_c_evaluation(client, model, corpus, signals, output_dir, cost_tracker,
     return output
 
 
-def generate_signals(output_dir, model="claude-sonnet-4-20250514", force=False):
+def generate_signals(output_dir, model="claude-sonnet-4-20250514", force=False,
+                     bedrock=False, aws_region=None):
     """Library entry point: run all three signal generation phases.
 
     Args:
         output_dir: Directory containing transcript_corpus.json.
         model: Claude model to use.
         force: If True, bypass all caches.
+        bedrock: If True, use Amazon Bedrock instead of direct Anthropic API.
+        aws_region: AWS region for Bedrock (default: us-west-2).
 
     Returns:
         dict summary with counts from each phase.
     """
-    import anthropic
-
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY environment variable is required")
-        sys.exit(1)
-
-    client = anthropic.Anthropic(api_key=api_key)
+    if bedrock:
+        from anthropic.lib.bedrock import AnthropicBedrock
+        if model == "claude-sonnet-4-20250514":
+            model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        client = AnthropicBedrock(aws_region=aws_region or "us-west-2")
+        print(f"Using Bedrock ({aws_region or 'us-west-2'}) with model {model}")
+    else:
+        import anthropic
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            print("ERROR: ANTHROPIC_API_KEY environment variable is required")
+            sys.exit(1)
+        client = anthropic.Anthropic(api_key=api_key)
     cost_tracker = CostTracker(model)
 
     # Load corpus
@@ -590,9 +601,12 @@ def main():
     parser.add_argument('--output-dir', required=True, help='Directory containing transcript_corpus.json')
     parser.add_argument('--model', default='claude-sonnet-4-20250514', help='Claude model (default: claude-sonnet-4-20250514)')
     parser.add_argument('--force', action='store_true', help='Bypass all caches and regenerate')
+    parser.add_argument('--bedrock', action='store_true', help='Use Amazon Bedrock instead of direct Anthropic API')
+    parser.add_argument('--aws-region', default=None, help='AWS region for Bedrock (default: us-west-2)')
     args = parser.parse_args()
 
-    generate_signals(args.output_dir, model=args.model, force=args.force)
+    generate_signals(args.output_dir, model=args.model, force=args.force,
+                     bedrock=args.bedrock, aws_region=args.aws_region)
 
 
 if __name__ == '__main__':

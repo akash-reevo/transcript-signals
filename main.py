@@ -69,6 +69,8 @@ def parse_args():
     parser.add_argument("--generate-signals", action="store_true", help="Run LLM-based signal generation (requires ANTHROPIC_API_KEY)")
     parser.add_argument("--claude-model", default="claude-sonnet-4-20250514", help="Claude model for signal generation (default: claude-sonnet-4-20250514)")
     parser.add_argument("--force-regenerate", action="store_true", help="Bypass signal generation caches")
+    parser.add_argument("--bedrock", action="store_true", help="Use Amazon Bedrock instead of direct Anthropic API")
+    parser.add_argument("--aws-region", default=None, help="AWS region for Bedrock (default: us-west-2)")
     parser.add_argument("--exclude-prefix", default="[test", help="Filename prefix to exclude from analysis (default: [test)")
     parser.add_argument("--snowflake-account", default=None, help="Snowflake account (env: SNOWFLAKE_ACCOUNT)")
     parser.add_argument("--snowflake-user", default=None, help="Snowflake user (env: SNOWFLAKE_USER)")
@@ -97,9 +99,9 @@ def parse_args():
         if not os.path.isfile(auto_signals):
             parser.error("--build-model requires --signals-file (or use --generate-signals to create one)")
 
-    # Validate: --generate-signals requires ANTHROPIC_API_KEY
-    if args.generate_signals and not os.environ.get('ANTHROPIC_API_KEY'):
-        parser.error("--generate-signals requires the ANTHROPIC_API_KEY environment variable")
+    # Validate: --generate-signals requires ANTHROPIC_API_KEY (unless using Bedrock)
+    if args.generate_signals and not args.bedrock and not os.environ.get('ANTHROPIC_API_KEY'):
+        parser.error("--generate-signals requires the ANTHROPIC_API_KEY environment variable (or use --bedrock)")
 
     return args
 
@@ -238,7 +240,8 @@ def main():
         from generate_signals import generate_signals
 
         print("\n=== Phase 2.5: LLM Signal Generation ===")
-        gen_summary = generate_signals(args.output_dir, model=args.claude_model, force=args.force_regenerate)
+        gen_summary = generate_signals(args.output_dir, model=args.claude_model, force=args.force_regenerate,
+                                       bedrock=args.bedrock, aws_region=args.aws_region)
         print(f"\nSignal generation complete: {gen_summary['raw_signal_count']} raw -> "
               f"{gen_summary['consolidated_signal_count']} consolidated, "
               f"{gen_summary['opportunities_evaluated']} opportunities evaluated")
@@ -257,7 +260,7 @@ def main():
 
         # Auto-wire evaluations file from generate-signals output
         evaluations_file = args.evaluations_file
-        if not evaluations_file and args.generate_signals:
+        if not evaluations_file:
             auto_eval = os.path.join(args.output_dir, 'signal_evaluations.json')
             if os.path.isfile(auto_eval):
                 evaluations_file = auto_eval
